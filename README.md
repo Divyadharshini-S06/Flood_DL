@@ -1,4 +1,4 @@
-# FloodXplain — Hackathon Prototype (v3)
+# FloodXplain
 
 **Tagline:** *See the flood before the water does.*
 
