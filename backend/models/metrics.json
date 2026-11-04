@@ -1,0 +1,50 @@
+{
+  "dataset": {
+    "total_rows": 850,
+    "real_curated_events": 10,
+    "jittered_duplicates_of_real_events": 120,
+    "positives": 290,
+    "negatives": 560,
+    "note": "Only 10 rows are real named historical flood events (see basin_data.BASINS). Everything else is explicitly synthetic augmentation (jittered duplicates + generated negatives/positives) \u2014 see train_model.py docstring for exactly how and why."
+  },
+  "models": {
+    "random_forest": {
+      "train_accuracy": 1.0,
+      "test_accuracy": 1.0,
+      "test_precision": 1.0,
+      "test_recall": 1.0,
+      "test_f1": 1.0,
+      "test_roc_auc": 1.0,
+      "cv_f1_5fold_mean": 1.0,
+      "cv_f1_5fold_std": 0.0,
+      "overfit_gap_train_minus_test_accuracy": 0.0
+    },
+    "gradient_boosting": {
+      "train_accuracy": 1.0,
+      "test_accuracy": 0.9941,
+      "test_precision": 1.0,
+      "test_recall": 0.9828,
+      "test_f1": 0.9913,
+      "test_roc_auc": 0.9999,
+      "cv_f1_5fold_mean": 0.9931,
+      "cv_f1_5fold_std": 0.0064,
+      "overfit_gap_train_minus_test_accuracy": 0.0059
+    },
+    "mlp_neural_net": {
+      "train_accuracy": 0.9794,
+      "test_accuracy": 0.9824,
+      "test_precision": 1.0,
+      "test_recall": 0.9483,
+      "test_f1": 0.9735,
+      "test_roc_auc": 1.0,
+      "cv_f1_5fold_mean": 0.9567,
+      "cv_f1_5fold_std": 0.0389,
+      "overfit_gap_train_minus_test_accuracy": -0.0029
+    }
+  },
+  "ensemble": {
+    "test_accuracy": 0.9941,
+    "test_f1": 0.9913,
+    "test_roc_auc": 1.0
+  }
+}

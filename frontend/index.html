@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FloodXplain — Know Before It Floods</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b1420; --card: #131f30; --card-2: #1a2940; --accent: #3b9dd6;
+    --low: #34c759; --moderate: #e0b93d; --severe: #ec6a34; --extreme: #e5484d;
+    --text: #f2f5f8; --muted: #8798ab; --border: #22344a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    /* Subtle layered glow instead of a flat colour - reads as a real product, not a wireframe */
+    background-image:
+      radial-gradient(ellipse 900px 500px at 15% -10%, rgba(59,157,214,0.18), transparent 60%),
+      radial-gradient(ellipse 700px 500px at 100% 10%, rgba(52,199,89,0.10), transparent 55%),
+      radial-gradient(ellipse 800px 600px at 50% 100%, rgba(224,105,52,0.08), transparent 55%);
+    background-attachment: fixed;
+  }
+
+  /* --- Responsive shell: mobile = single column, desktop = wider dashboard-style --- */
+  .app { max-width: 480px; margin: 0 auto; min-height: 100vh; }
+  @media (min-width: 900px) {
+    .app { max-width: 1100px; display: grid; grid-template-columns: 420px 1fr; gap: 24px; align-items: start; padding: 0 24px; }
+    header, .location-bar, .tier-badge, .auth-bar { grid-column: 1 / -1; }
+    #left-col { grid-column: 1; }
+    #right-col { grid-column: 2; }
+  }
+
+  header { padding: 22px 20px 8px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  header .logo { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, var(--accent), #2570a3); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  header h1 { font-size: 19px; margin: 0; font-weight: 800; letter-spacing: -0.3px; }
+  header .tagline { margin: 0; color: var(--muted); font-size: 12px; font-weight: 500; }
+
+  .lang-select {
+    background: var(--card); border: 1px solid var(--border); color: var(--text);
+    border-radius: 10px; padding: 8px 10px; font-size: 12.5px; font-family: inherit; font-weight: 600;
+  }
+
+  .auth-bar { padding: 4px 20px 14px; display: flex; align-items: center; gap: 10px; }
+  .auth-bar .user-chip {
+    display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--border);
+    border-radius: 20px; padding: 6px 12px 6px 6px; font-size: 12.5px; font-weight: 600;
+  }
+  .auth-bar .user-chip .avatar {
+    width: 22px; height: 22px; border-radius: 50%; background: var(--accent);
+    display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; color: white;
+  }
+
+  /* --- Login gate overlay --- */
+  #loginGate {
+    position: fixed; inset: 0; background: rgba(5,10,17,0.92); backdrop-filter: blur(6px);
+    display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px;
+  }
+  .login-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 20px;
+    padding: 32px 26px; max-width: 360px; width: 100%; text-align: center;
+  }
+  .login-card .logo-big { width: 56px; height: 56px; border-radius: 16px; margin: 0 auto 16px; background: linear-gradient(135deg, var(--accent), #2570a3); display: flex; align-items: center; justify-content: center; }
+  .login-card h2 { margin: 0 0 6px; font-size: 20px; font-weight: 800; }
+  .login-card p { margin: 0 0 22px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+  #googleBtnContainer { display: flex; justify-content: center; margin-bottom: 14px; }
+  .divider { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 11px; margin: 14px 0; text-transform: uppercase; letter-spacing: 0.6px; }
+  .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+  .login-card input {
+    width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border);
+    background: var(--card-2); color: var(--text); font-size: 14px; font-family: inherit; margin-bottom: 10px;
+  }
+  .login-card button.guest-btn {
+    width: 100%; padding: 12px; border-radius: 12px; border: none; background: var(--accent);
+    color: white; font-weight: 700; font-size: 13.5px; cursor: pointer; font-family: inherit;
+  }
+  .login-card .fine-print { margin-top: 14px; font-size: 10.5px; color: var(--muted); line-height: 1.5; }
+
+  .location-bar { display: flex; gap: 8px; padding: 14px 20px 6px; }
+  .location-bar input {
+    flex: 1; padding: 13px 14px; border-radius: 12px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); font-size: 14px; font-family: inherit; min-width: 0;
+  }
+  .location-bar input::placeholder { color: var(--muted); }
+  .location-bar button {
+    padding: 0 16px; border-radius: 12px; border: none; background: var(--accent); color: white;
+    font-weight: 700; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px; font-family: inherit; flex-shrink: 0;
+  }
+  .location-bar button.secondary { background: var(--card-2); border: 1px solid var(--border); width: 44px; justify-content: center; }
+  .location-bar button.secondary svg { width: 18px; height: 18px; }
+
+  .tier-badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 20px; font-size: 11.5px; font-weight: 700; margin: 0 20px 10px; }
+  .tier-badge.A { background: rgba(52,199,89,0.15); color: var(--low); border: 1px solid rgba(52,199,89,0.3); }
+  .tier-badge.B { background: rgba(224,185,61,0.15); color: var(--moderate); border: 1px solid rgba(224,185,61,0.3); }
+
+  .severity-card { margin: 0 20px 14px; padding: 22px; border-radius: 18px; background: linear-gradient(160deg, var(--card), var(--card-2)); border: 1px solid var(--border); }
+  .severity-card .badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 13px; border-radius: 20px; font-size: 12px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase; margin-bottom: 12px; }
+  .badge.Low { background: var(--low); color: #05230b; }
+  .badge.Moderate { background: var(--moderate); color: #2b2000; }
+  .badge.Severe { background: var(--severe); color: #2b0d00; }
+  .badge.Extreme { background: var(--extreme); color: #fff; }
+  .severity-card h2 { margin: 0 0 4px; font-size: 27px; font-weight: 800; letter-spacing: -0.5px; }
+  .severity-card .window { color: var(--muted); font-size: 13.5px; margin-bottom: 14px; font-weight: 500; }
+  .severity-card .explain { font-size: 13.5px; line-height: 1.6; color: #c7d3e0; }
+
+  .section-label { padding: 0 20px; margin: 20px 0 9px; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.9px; color: var(--muted); font-weight: 700; display: flex; align-items: center; gap: 6px; }
+
+  /* --- Scrollable strips, now with a VISIBLE scrollbar + drag-to-scroll --- */
+  .strip, .risk-strip {
+    display: flex; gap: 9px; overflow-x: auto; padding: 0 20px 12px; cursor: grab;
+    scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+  }
+  .strip::-webkit-scrollbar, .risk-strip::-webkit-scrollbar { height: 6px; }
+  .strip::-webkit-scrollbar-thumb, .risk-strip::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+  .strip.dragging, .risk-strip.dragging { cursor: grabbing; scroll-behavior: auto; }
+
+  .hour-chip { flex: 0 0 auto; width: 66px; padding: 13px 8px; border-radius: 14px; background: var(--card); text-align: center; border: 1px solid var(--border); user-select: none; }
+  .hour-chip .t { font-size: 11px; color: var(--muted); margin-bottom: 8px; font-weight: 600; }
+  .hour-chip svg { width: 20px; height: 20px; margin-bottom: 6px; color: var(--accent); }
+  .hour-chip .v { font-size: 12px; font-weight: 700; }
+
+  .risk-chip { flex: 0 0 auto; width: 66px; padding: 13px 6px; border-radius: 14px; text-align: center; color: #fff; font-size: 11px; font-weight: 800; user-select: none; cursor: pointer; transition: transform 0.1s; }
+  .risk-chip:hover { transform: scale(1.05); }
+  .hour-detail {
+    margin: 0 20px 10px; padding: 12px 14px; border-radius: 12px; background: var(--card-2);
+    border: 1px solid var(--border); font-size: 12px; color: #c7d3e0; line-height: 1.5;
+  }
+
+  #map { height: 300px; margin: 8px 0 0; border-radius: 16px; overflow: hidden; border: 1px solid var(--border); }
+  #map-wrap { padding: 0 20px; }
+
+  .safe-zones { padding: 0 20px; }
+  .safe-zone-item { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-radius: 12px; background: var(--card); border: 1px solid var(--border); margin-bottom: 8px; font-size: 13px; }
+  .safe-zone-item svg { width: 17px; height: 17px; color: var(--low); flex-shrink: 0; }
+
+  .meta { margin: 18px 20px 14px; padding: 14px 16px; border-radius: 12px; background: var(--card); border: 1px solid var(--border); font-size: 12px; color: var(--muted); line-height: 1.7; }
+  .meta b { color: var(--text); font-weight: 600; }
+  .meta .row { display: flex; justify-content: space-between; }
+
+  .refresh-bar { display: flex; align-items: center; justify-content: space-between; margin: 0 20px 30px; font-size: 11.5px; color: var(--muted); }
+  .refresh-bar button { background: none; border: none; color: var(--accent); font-weight: 700; font-size: 11.5px; display: flex; align-items: center; gap: 4px; cursor: pointer; font-family: inherit; }
+  .refresh-bar svg { width: 13px; height: 13px; }
+
+  .freshness-row {
+    display: flex; align-items: center; gap: 6px; padding: 0 20px 4px; font-size: 11px;
+    color: var(--muted); font-weight: 500;
+  }
+  .freshness-row svg { width: 12px; height: 12px; flex-shrink: 0; }
+
+  .eval-panel {
+    margin: 24px 20px 10px; padding: 18px; border-radius: 16px; background: var(--card);
+    border: 1px dashed var(--border);
+  }
+  .eval-panel h3 { margin: 0 0 4px; font-size: 13.5px; font-weight: 800; display: flex; align-items: center; gap: 6px; }
+  .eval-panel p { margin: 0 0 12px; font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+  .eval-panel select {
+    width: 100%; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--card-2); color: var(--text); font-size: 13px; font-family: inherit; margin-bottom: 10px;
+  }
+  .eval-panel button {
+    width: 100%; padding: 11px; border-radius: 10px; border: none; background: var(--accent);
+    color: white; font-weight: 700; font-size: 13px; cursor: pointer; font-family: inherit;
+  }
+  .eval-result { margin-top: 14px; padding: 14px; border-radius: 12px; background: var(--card-2); font-size: 12.5px; line-height: 1.6; }
+  .eval-result .verdict { font-weight: 800; margin-bottom: 6px; }
+
+  .loading { padding: 60px 20px; text-align: center; color: var(--muted); font-size: 13.5px; }
+</style>
+</head>
+<body>
+
+<div id="loginGate">
+  <div class="login-card">
+    <div class="logo-big"><svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M12 2.5c-3.5 4.8-7 9.2-7 13.2a7 7 0 0 0 14 0c0-4-3.5-8.4-7-13.2z"/></svg></div>
+    <h2 data-i18n="login_title">Welcome to FloodXplain</h2>
+    <p data-i18n="login_sub">Sign in to get personalized flood-risk alerts for your area.</p>
+    <div id="googleBtnContainer"></div>
+    <div class="divider" data-i18n="or">OR</div>
+    <input id="guestName" placeholder="Enter your name" data-i18n-placeholder="name_placeholder" />
+    <button class="guest-btn" onclick="continueAsGuest()" data-i18n="continue_guest">Continue as Guest</button>
+    <div class="fine-print" data-i18n="fine_print">We only use this to show you relevant alerts and understand app usage. No spam, ever.</div>
+  </div>
+</div>
+
+<div class="app" id="appRoot" style="display:none;">
+  <header>
+    <div class="brand">
+      <div class="logo"><svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 2.5c-3.5 4.8-7 9.2-7 13.2a7 7 0 0 0 14 0c0-4-3.5-8.4-7-13.2z"/></svg></div>
+      <div>
+        <h1>FloodXplain</h1>
+        <p class="tagline" data-i18n="tagline">Early insights, safer decisions.</p>
+      </div>
+    </div>
+    <select class="lang-select" id="langSelect" onchange="setLanguage(this.value)">
+      <option value="en">EN</option>
+      <option value="ta">தமிழ்</option>
+      <option value="hi">हिंदी</option>
+    </select>
+  </header>
+
+  <div class="auth-bar">
+    <div class="user-chip">
+      <div class="avatar" id="userAvatar">?</div>
+      <span id="userNameLabel">—</span>
+    </div>
+  </div>
+
+  <div id="left-col">
+    <div class="location-bar">
+      <input id="locInput" data-i18n-placeholder="location_placeholder" placeholder="Enter a place in India" onkeydown="if(event.key==='Enter')searchLocation()" />
+      <button onclick="searchLocation()" data-i18n="go">Go</button>
+      <button class="secondary" id="geoBtn" title="Use my location"></button>
+    </div>
+    <div id="content">
+      <div class="loading" data-i18n="empty_state">Enter a location or use your device location to check flood risk</div>
+    </div>
+
+    <div class="eval-panel">
+      <h3>🧪 Evaluate against a real flood</h3>
+      <p>No flood is happening right now, so use this to replay a real historical date using actual archived weather data — pick ANY India location and ANY date in roughly the past 20 years, or use one of the 10 pre-loaded real flood events as a shortcut.</p>
+      <input id="evalPlace" placeholder="Type any place in India (e.g. 'Alappuzha, Kerala')" style="width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--border); background:var(--card-2); color:var(--text); font-size:13px; font-family:inherit; margin-bottom:10px;" />
+      <input id="evalDate" type="date" style="width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--border); background:var(--card-2); color:var(--text); font-size:13px; font-family:inherit; margin-bottom:10px;" />
+      <button onclick="runFreeformEvaluation()">Run evaluation for this place + date</button>
+      <div class="divider" style="margin:14px 0;">OR PICK A KNOWN EVENT</div>
+      <select id="evalBasinSelect"></select>
+      <button onclick="runEvaluation()">Replay this known event</button>
+      <div id="evalResult"></div>
+    </div>
+  </div>
+  <div id="right-col"></div>
+</div>
+
+<script>
+// ============ i18n ============
+const I18N = {
+  en: {
+    login_title: "Welcome to FloodXplain", login_sub: "Sign in to get personalized flood-risk alerts for your area.",
+    or: "OR", name_placeholder: "Enter your name", continue_guest: "Continue as Guest",
+    fine_print: "We only use this to show you relevant alerts and understand app usage. No spam, ever.",
+    tagline: "Early insights, safer decisions.", location_placeholder: "Enter a place in India", go: "Go",
+    empty_state: "Enter a location or use your device location to check flood risk",
+    checking: "Checking flood risk…", updated: "Updated", refresh: "Refresh now",
+    weather: "Hourly weather", risk: "Hourly flood risk", map: "Map", safe_zones: "Nearest safe zones",
+    calibrated: "Calibrated region", general: "General coverage — IMD national rainfall thresholds",
+    no_shelters: "No mapped shelters for this general-coverage area yet",
+    no_significant_risk: "No significant risk expected",
+  },
+  ta: {
+    login_title: "FloodXplain-க்கு வரவேற்கிறோம்", login_sub: "உங்கள் பகுதிக்கான வெள்ள எச்சரிக்கைகளைப் பெற உள்நுழையவும்.",
+    or: "அல்லது", name_placeholder: "உங்கள் பெயரை உள்ளிடவும்", continue_guest: "விருந்தினராக தொடரவும்",
+    fine_print: "பயன்பாட்டைப் புரிந்துகொள்ளவும், தொடர்புடைய எச்சரிக்கைகளைக் காட்டவும் மட்டுமே இதைப் பயன்படுத்துகிறோம்.",
+    tagline: "முன்கூட்டிய நுண்ணறிவு, பாதுகாப்பான முடிவுகள்.", location_placeholder: "இந்தியாவில் ஒரு இடத்தை உள்ளிடவும்", go: "செல்",
+    empty_state: "வெள்ள அபாயத்தை அறிய இடத்தை உள்ளிடவும் அல்லது உங்கள் இருப்பிடத்தைப் பயன்படுத்தவும்",
+    checking: "வெள்ள அபாயத்தை சரிபார்க்கிறது…", updated: "புதுப்பிக்கப்பட்டது", refresh: "இப்போது புதுப்பிக்கவும்",
+    weather: "மணிநேர வானிலை", risk: "மணிநேர வெள்ள அபாயம்", map: "வரைபடம்", safe_zones: "அருகிலுள்ள பாதுகாப்பான இடங்கள்",
+    calibrated: "அளவீடு செய்யப்பட்ட பகுதி", general: "பொது கவரேஜ் — IMD தேசிய மழை வரம்புகள்",
+    no_shelters: "இந்தப் பகுதிக்கு இன்னும் தங்குமிடங்கள் இல்லை",
+    no_significant_risk: "குறிப்பிடத்தக்க ஆபத்து இல்லை",
+  },
+  hi: {
+    login_title: "FloodXplain में आपका स्वागत है", login_sub: "अपने क्षेत्र के लिए बाढ़ चेतावनी पाने हेतु साइन इन करें।",
+    or: "या", name_placeholder: "अपना नाम दर्ज करें", continue_guest: "अतिथि के रूप में जारी रखें",
+    fine_print: "हम इसका उपयोग केवल प्रासंगिक अलर्ट दिखाने और उपयोग समझने के लिए करते हैं। कोई स्पैम नहीं।",
+    tagline: "समय रहते जानकारी, सुरक्षित फैसले।", location_placeholder: "भारत में एक स्थान दर्ज करें", go: "जाएं",
+    empty_state: "बाढ़ जोखिम जानने के लिए स्थान दर्ज करें या अपना स्थान उपयोग करें",
+    checking: "बाढ़ जोखिम जांचा जा रहा है…", updated: "अपडेट किया गया", refresh: "अभी रीफ्रेश करें",
+    weather: "प्रति घंटा मौसम", risk: "प्रति घंटा बाढ़ जोखिम", map: "मानचित्र", safe_zones: "निकटतम सुरक्षित स्थान",
+    calibrated: "कैलिब्रेटेड क्षेत्र", general: "सामान्य कवरेज — IMD राष्ट्रीय वर्षा सीमा",
+    no_shelters: "इस क्षेत्र के लिए अभी कोई आश्रय मैप नहीं किया गया",
+    no_significant_risk: "कोई उल्लेखनीय जोखिम नहीं",
+  },
+};
+let currentLang = localStorage.getItem("fx_lang") || "en";
+
+function t(key) { return (I18N[currentLang] && I18N[currentLang][key]) || I18N.en[key] || key; }
+
+function setLanguage(lang) {
+  currentLang = lang;
+  localStorage.setItem("fx_lang", lang);
+  document.getElementById("langSelect").value = lang;
+  document.querySelectorAll("[data-i18n]").forEach(el => el.textContent = t(el.getAttribute("data-i18n")));
+  document.querySelectorAll("[data-i18n-placeholder]").forEach(el => el.placeholder = t(el.getAttribute("data-i18n-placeholder")));
+  // The explanation text is generated server-side in the requested language,
+  // so switching languages needs a fresh fetch, not just a re-render of the
+  // old (still-English) cached response - this is what was causing the
+  // explanation to stay in English after you changed the dropdown.
+  if (currentUser && currentLatLon) fetchRisk(currentLatLon[0], currentLatLon[1], true);
+}
+
+// ============ Config ============
+const API_BASE = "http://localhost:8000";
+// Get your own Client ID from Google Cloud Console (see README) and paste it here.
+// Leave as-is to keep Google sign-in disabled and use "Continue as Guest" only.
+const GOOGLE_CLIENT_ID = "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com";
+
+let map, currentLatLon = null, refreshTimer = null, currentUser = null, lastRiskData = null;
+
+// ============ Auth ============
+function initGoogleSignIn() {
+  if (!window.google || GOOGLE_CLIENT_ID.startsWith("YOUR_")) return; // not configured yet
+  google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleCredential });
+  google.accounts.id.renderButton(document.getElementById("googleBtnContainer"), { theme: "filled_blue", size: "large", shape: "pill" });
+}
+
+async function handleGoogleCredential(response) {
+  try {
+    const res = await fetch(`${API_BASE}/auth/google`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credential: response.credential }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail);
+    loginSuccess(data.user_id, data.name);
+  } catch (err) {
+    alert("Google sign-in failed: " + err.message + "\n\nTry 'Continue as Guest' instead.");
+  }
+}
+
+async function continueAsGuest() {
+  const name = document.getElementById("guestName").value.trim();
+  if (!name) return alert("Please enter your name");
+  try {
+    const res = await fetch(`${API_BASE}/auth/guest`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json();
+    loginSuccess(data.user_id, data.name);
+  } catch (err) {
+    // Backend unreachable - still let them use the app locally rather than block them.
+    loginSuccess(null, name);
+  }
+}
+
+function loginSuccess(userId, name) {
+  currentUser = { id: userId, name };
+  // Deliberately NOT persisted to localStorage: the architecture calls for
+  // mandatory login every session, so the login gate must show again the
+  // next time this page is opened, instead of silently auto-restoring a
+  // saved session (that silent auto-restore was the exact bug you flagged —
+  // "it doesn't ask for name/sign-in anymore").
+  document.getElementById("loginGate").style.display = "none";
+  document.getElementById("appRoot").style.display = "block";
+  document.getElementById("userAvatar").textContent = name.charAt(0).toUpperCase();
+  document.getElementById("userNameLabel").textContent = name;
+  lucide.createIcons();
+}
+
+function tryRestoreSession() {
+  // Intentionally does nothing — login is mandatory every session by
+  // design (see loginSuccess() above). Kept as a named function since
+  // boot() still calls it, so the intent stays documented in one place
+  // instead of silently vanishing from the call site.
+}
+
+// ============ Icons ============
+const ICONS = { rain: 'cloud-rain', drizzle: 'cloud-drizzle', cloud: 'cloud', sun: 'sun',
+  mapPin: 'map-pin', shield: 'shield-alert', shieldCheck: 'shield-check', refresh: 'refresh-cw',
+  droplets: 'droplets', gauge: 'gauge' };
+function iconSvg(name) { return `<i data-lucide="${name}"></i>`; }
+
+function weatherIconName(precip, cloud) {
+  if (precip > 3) return ICONS.rain;
+  if (precip > 0.5) return ICONS.drizzle;
+  if (cloud > 60) return ICONS.cloud;
+  return ICONS.sun;
+}
+function severityColor(sev) { return { Low: "#34c759", Moderate: "#e0b93d", Severe: "#ec6a34", Extreme: "#e5484d" }[sev] || "#555"; }
+function formatHour(iso) { return new Date(iso).toLocaleTimeString([], { hour: "numeric" }); }
+function timeAgo(iso) {
+  const secs = Math.floor((Date.now() - new Date(iso)) / 1000);
+  if (secs < 60) return "just now";
+  if (secs < 3600) return `${Math.floor(secs / 60)} min ago`;
+  return `${Math.floor(secs / 3600)}h ago`;
+}
+
+// ============ Drag-to-scroll for the horizontal strips (desktop mouse support) ============
+function toggleHourDetail(index) {
+  // Close any other open detail so only one shows at a time - keeps the UI tidy.
+  document.querySelectorAll(".hour-detail").forEach((el, i) => {
+    el.style.display = (i === index && el.style.display === "none") ? "block" : "none";
+  });
+}
+
+function enableDragScroll(el) {
+  let isDown = false, startX, scrollLeft;
+  el.addEventListener("mousedown", e => { isDown = true; el.classList.add("dragging"); startX = e.pageX - el.offsetLeft; scrollLeft = el.scrollLeft; });
+  el.addEventListener("mouseleave", () => { isDown = false; el.classList.remove("dragging"); });
+  el.addEventListener("mouseup", () => { isDown = false; el.classList.remove("dragging"); });
+  el.addEventListener("mousemove", e => {
+    if (!isDown) return;
+    e.preventDefault();
+    const x = e.pageX - el.offsetLeft;
+    el.scrollLeft = scrollLeft - (x - startX) * 1.5;
+  });
+}
+
+// ============ Risk fetching ============
+async function fetchRisk(lat, lon, forceRefresh = false) {
+  currentLatLon = [lat, lon];
+  document.getElementById("content").innerHTML = `<div class="loading">${t("checking")}</div>`;
+  try {
+    const url = `${API_BASE}/risk?lat=${lat}&lon=${lon}&lang=${currentLang}${forceRefresh ? "&force_refresh=true" : ""}`;
+    const res = await fetch(url);
+    if (!res.ok) { const err = await res.json(); throw new Error(err.detail || "Request failed"); }
+    const data = await res.json();
+    lastRiskData = data;
+    render(lat, lon, data);
+    scheduleAutoRefresh(lat, lon);
+    logVisit(lat, lon, data);
+  } catch (err) {
+    document.getElementById("content").innerHTML =
+      `<div class="loading">Couldn't get a risk assessment.<br><br>${err.message}<br><br>Make sure the backend is running at ${API_BASE}.</div>`;
+  }
+}
+
+async function logVisit(lat, lon, data) {
+  try {
+    await fetch(`${API_BASE}/log-visit`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        user_id: currentUser ? currentUser.id : null, lat, lon,
+        severity: data.risk.severity, confidence_tier: data.confidence_tier,
+      }),
+    });
+  } catch (e) { /* non-critical, ignore */ }
+}
+
+function scheduleAutoRefresh(lat, lon) {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = setInterval(() => fetchRisk(lat, lon, true), 30 * 60 * 1000);
+}
+
+function render(lat, lon, data) {
+  const r = data.risk;
+  const hours = data.hourly_preview;
+  const tier = data.confidence_tier;
+
+  const stateLabel = data.state ? ` · ${data.state}` : "";
+  const tierBadge = tier === "A"
+    ? `<div class="tier-badge A">${iconSvg(ICONS.shieldCheck)} ${t("calibrated")} — ${data.matched_basin.name}${stateLabel}</div>`
+    : `<div class="tier-badge B">${iconSvg(ICONS.shield)} ${t("general")}${stateLabel}</div>`;
+
+  const weatherChips = hours.map(h => `
+    <div class="hour-chip"><div class="t">${formatHour(h.time)}</div>${iconSvg(weatherIconName(h.precipitation, h.cloudcover))}<div class="v">${h.precipitation}mm</div></div>
+  `).join("");
+
+  // FIXED FOR REAL THIS TIME: the previous version computed its own
+  // per-hour colour on the frontend by dividing "rainfall so far" by "this
+  // window's own total rainfall" — that ratio mathematically climbs toward
+  // 100% by the last hour shown no matter how little rain actually fell,
+  // which is exactly why hours late in the strip kept showing Severe/Extreme
+  // while the headline card correctly said Low (the "4-15" hours you saw
+  // escalating in the screenshot were just hour-of-day labels — 4am to
+  // 3pm — the escalating colours next to them were the bug, not the times).
+  // The backend now computes each hour's severity from a real trailing-24h
+  // rainfall window compared against the SAME reference threshold the
+  // headline card uses (see risk_model.compute_hourly_risk on the backend),
+  // so this can never contradict the overall verdict again. The frontend
+  // just displays what the backend already decided.
+  const hourlyRisk = r.hourly_risk || [];
+  const riskChipsData = hourlyRisk.length === hours.length ? hourlyRisk : hours.map(h => (
+    { time: h.time, severity: "Low", trailing_24h_mm: h.precipitation, pct_of_reference: 0 }
+  ));
+  const riskChips = riskChipsData.map((d, i) => `
+    <div class="risk-chip" style="background:${severityColor(d.severity)}" onclick="toggleHourDetail(${i})">
+      ${formatHour(d.time)}<br>${d.severity}
+    </div>
+  `).join("");
+  const riskDetailsHtml = riskChipsData.map((d, i) => `
+    <div class="hour-detail" id="hourDetail${i}" style="display:none;">
+      Through ${formatHour(d.time)}, the trailing 24h rainfall is ${d.trailing_24h_mm}mm —
+      ${d.pct_of_reference}% of the ${(r.reference_threshold_24h_mm || 115.6).toFixed(0)}mm reference threshold
+      (${r.reference_label}).
+    </div>
+  `).join("");
+
+  const safeZonesHtml = (data.matched_basin && data.matched_basin.safe_zones || []).map(z => `
+    <div class="safe-zone-item">${iconSvg('tent')}<span>${z.name}</span></div>
+  `).join("") || `<div class="safe-zone-item">${iconSvg('info')}<span>${t("no_shelters")}</span></div>`;
+
+  const satelliteFreshness = tier === "A"
+    ? `Satellite reference: ${data.matched_basin.reference_event} (historical event — not a live pass)`
+    : `No calibrated satellite reference for this general-coverage area yet`;
+
+  document.getElementById("content").innerHTML = `
+    ${tierBadge}
+    <div class="severity-card">
+      <span class="badge ${r.severity}">${iconSvg(ICONS.droplets)} ${r.severity} Risk</span>
+      <h2>${r.time_window === 'no_significant_risk' ? t('no_significant_risk') : r.time_window}</h2>
+      <div class="window">Estimated flood risk window · ${data.matched_basin ? data.matched_basin.name : 'General coverage'}</div>
+      <div class="explain">${r.explanation}</div>
+    </div>
+    <div class="section-label">${iconSvg(ICONS.cloud)} ${t("weather")}</div>
+    <div class="strip" id="weatherStrip">${weatherChips}</div>
+    <div class="freshness-row">${iconSvg('rotate-cw')} Rainfall data: ${data.forecast_source} · updated ${timeAgo(data.last_updated)}</div>
+    <div class="section-label">${iconSvg(ICONS.gauge)} ${t("risk")}</div>
+    <div class="risk-strip" id="riskStrip">${riskChips}</div>
+    <div id="hourDetails">${riskDetailsHtml}</div>
+    <div class="freshness-row">${iconSvg('satellite')} ${satelliteFreshness}</div>
+    <div class="section-label">${iconSvg(ICONS.mapPin)} ${t("map")}</div>
+    <div id="map-wrap"><div id="map"></div></div>
+    <div class="section-label">${iconSvg('tent')} ${t("safe_zones")}</div>
+    <div class="safe-zones">${safeZonesHtml}</div>
+    <div class="meta">
+      <div class="row"><span>Peak rainfall intensity</span><b>${r.peak_intensity_mm_per_hr} mm/hr</b></div>
+      <div class="row"><span>Antecedent Precipitation Index</span><b>${r.antecedent_precipitation_index}</b></div>
+      <div class="row"><span>IMD rainfall classification</span><b>${r.imd_rainfall_class.replace('_',' ')}</b></div>
+      <div class="row"><span>Elevation / slope / nearest river</span><b>${r.elevation_m}m · ${r.slope_pct}% · ${r.river_dist_km}km</b></div>
+      <div class="row"><span>Built-up surface nearby / coast distance</span><b>${Math.round(r.impervious_density*100)}% · ${r.coastal_dist_km}km</b></div>
+      <div class="row"><span>Rule-based vs. trained-model estimate</span><b>${r.model_ensemble.rule_based_severity} vs ${r.model_ensemble.ml_ensemble_severity ?? 'n/a'}</b></div>
+    </div>
+    <div class="refresh-bar">
+      <span>${t("updated")} ${timeAgo(data.last_updated)}</span>
+      <button onclick="fetchRisk(${lat}, ${lon}, true)">${iconSvg(ICONS.refresh)} ${t("refresh")}</button>
+    </div>
+  `;
+  lucide.createIcons();
+  enableDragScroll(document.getElementById("weatherStrip"));
+  enableDragScroll(document.getElementById("riskStrip"));
+  initMap(lat, lon, data);
+}
+
+// ============ Map — CARTO's free tiles started requiring an API key (the
+// "API KEY REQUIRED" watermark you saw), so we're using Esri's World Dark Gray
+// Base tiles instead: free, no key/signup needed, and its dark styling matches
+// the app's theme. Note Esri's tile URL order is {z}/{y}/{x}, not {z}/{x}/{y}. ============
+function initMap(lat, lon, data) {
+  const mapEl = document.getElementById("map");
+  if (!mapEl) return;
+  if (map) { map.remove(); map = null; }
+  map = L.map("map").setView([lat, lon], 11);
+  L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", {
+    attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
+    maxZoom: 16,
+  }).addTo(map);
+  L.marker([lat, lon]).addTo(map).bindPopup("Your location").openPopup();
+  (data.matched_basin?.safe_zones || []).forEach(z => {
+    L.marker([z.lat, z.lon], { title: z.name }).addTo(map).bindPopup(z.name);
+  });
+  setTimeout(() => map.invalidateSize(), 200); // fixes gray-tile bug when map renders inside a resized layout
+}
+
+function useMyLocation() {
+  if (!navigator.geolocation) return alert("Geolocation not supported");
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      fetchRisk(pos.coords.latitude, pos.coords.longitude);
+      reverseGeocodeIntoSearchBar(pos.coords.latitude, pos.coords.longitude);
+    },
+    () => alert("Location access denied — try entering a place name instead")
+  );
+}
+
+async function searchLocation() {
+  const q = document.getElementById("locInput").value.trim();
+  if (!q) return;
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q + ", India")}`);
+    const results = await res.json();
+    if (!results.length) return alert("Location not found");
+    fetchRisk(parseFloat(results[0].lat), parseFloat(results[0].lon));
+  } catch (err) { alert("Geocoding failed: " + err); }
+}
+
+// Fills the search box with a readable place name after "use my location" -
+// previously it stayed blank because we only ever fetched risk data, never
+// looked up what the coordinates were actually called.
+async function reverseGeocodeIntoSearchBar(lat, lon) {
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=14`);
+    const data = await res.json();
+    const label = data.display_name
+      ? data.display_name.split(",").slice(0, 3).join(",")
+      : `${lat.toFixed(3)}, ${lon.toFixed(3)}`;
+    document.getElementById("locInput").value = label;
+  } catch (err) {
+    document.getElementById("locInput").value = `${lat.toFixed(3)}, ${lon.toFixed(3)}`;
+  }
+}
+
+// ============ Evaluation / historical backtest ============
+// Populates the dropdown from the backend's calibrated basins (real events,
+// real dates) and replays actual archived weather through the risk model -
+// this is your proof-of-working demo when no flood is happening live.
+async function initEvalPanel() {
+  try {
+    const res = await fetch(`${API_BASE}/demo/basins`);
+    const basins = await res.json();
+    const select = document.getElementById("evalBasinSelect");
+    select.innerHTML = Object.entries(basins).map(([key, b]) =>
+      `<option value="${key}">${b.name} — ${b.event_name} (${b.event_date})</option>`
+    ).join("");
+  } catch (err) {
+    document.getElementById("evalBasinSelect").innerHTML = `<option>Backend unreachable</option>`;
+  }
+}
+
+function renderEvalResult(data, labelLine) {
+  const resultEl = document.getElementById("evalResult");
+  const r = data.risk;
+  resultEl.innerHTML = `
+    <div class="eval-result">
+      <div class="verdict" style="color:${severityColor(r.severity)}">
+        Model verdict: ${r.severity} risk — ${r.time_window}
+      </div>
+      <div>${labelLine}</div>
+      ${data.state ? `<div style="color:var(--muted);">State: ${data.state}</div>` : ""}
+      <div style="margin-top:8px;">${r.explanation}</div>
+      <div style="margin-top:8px; color: var(--muted); font-size:11px;">
+        Rainfall data source: Open-Meteo Historical Weather Archive (real recorded data, not simulated) ·
+        Rule-based vs. trained model: ${r.model_ensemble.rule_based_severity} vs ${r.model_ensemble.ml_ensemble_severity ?? "n/a"}
+      </div>
+    </div>
+  `;
+}
+
+async function runEvaluation() {
+  const basinKey = document.getElementById("evalBasinSelect").value;
+  const resultEl = document.getElementById("evalResult");
+  resultEl.innerHTML = `<div class="loading" style="padding:20px 0;">Fetching real archived weather for that date…</div>`;
+  try {
+    const res = await fetch(`${API_BASE}/demo/historical?basin_key=${basinKey}&lang=${currentLang}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail);
+    renderEvalResult(data, `Real event: <b>${data.event.name}</b> (${data.event.date})`);
+  } catch (err) {
+    resultEl.innerHTML = `<div class="eval-result">Couldn't run evaluation: ${err.message}</div>`;
+  }
+}
+
+// Free-form place + calendar date evaluation - any India location, any
+// date in roughly the past 20 years, replaying that real date's archived
+// weather. This is the "place and the calendar" picker you asked for,
+// not limited to the 10 pre-loaded basins.
+async function runFreeformEvaluation() {
+  const place = document.getElementById("evalPlace").value.trim();
+  const date = document.getElementById("evalDate").value;
+  const resultEl = document.getElementById("evalResult");
+  if (!place) return alert("Type a place name first");
+  if (!date) return alert("Pick a date first");
+
+  resultEl.innerHTML = `<div class="loading" style="padding:20px 0;">Looking up the location…</div>`;
+  try {
+    const geoRes = await fetch(`${API_BASE}/demo/geocode?q=${encodeURIComponent(place)}`);
+    const geo = await geoRes.json();
+    if (!geoRes.ok) throw new Error(geo.detail || "Place not found");
+
+    resultEl.innerHTML = `<div class="loading" style="padding:20px 0;">Fetching real archived weather for ${date}…</div>`;
+    const res = await fetch(`${API_BASE}/demo/evaluate?lat=${geo.lat}&lon=${geo.lon}&date=${date}&lang=${currentLang}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail);
+    renderEvalResult(data, `Location: <b>${geo.display_name}</b> on ${date}`);
+  } catch (err) {
+    resultEl.innerHTML = `<div class="eval-result">Couldn't run evaluation: ${err.message}</div>`;
+  }
+}
+
+// ============ Boot ============
+window.addEventListener("DOMContentLoaded", () => {
+  // Fix: previously the location-icon was inserted AFTER lucide had already run,
+  // so it never got converted into a real icon. Insert first, then render icons once.
+  document.getElementById("geoBtn").innerHTML = iconSvg('locate-fixed');
+  document.getElementById("geoBtn").onclick = useMyLocation;
+  lucide.createIcons();
+
+  setLanguage(currentLang);
+  tryRestoreSession();
+  setTimeout(initGoogleSignIn, 300); // small delay so the Google script has loaded
+  initEvalPanel();
+
+  // Bound the evaluation date picker to roughly the last 20 years, since
+  // that's the archive window /demo/evaluate actually accepts.
+  const dateInput = document.getElementById("evalDate");
+  const today = new Date();
+  const twentyYearsAgo = new Date(); twentyYearsAgo.setFullYear(today.getFullYear() - 20);
+  dateInput.max = today.toISOString().slice(0, 10);
+  dateInput.min = twentyYearsAgo.toISOString().slice(0, 10);
+});
+</script>
+</body>
+</html>
